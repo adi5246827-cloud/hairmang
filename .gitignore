@@ -1,6 +1,10 @@
 # Claude Code local memory (not part of the app)
 memory/
 
+# Node
+node_modules/
+npm-debug.log*
+
 # Environment / secrets
 .env
 .env.*

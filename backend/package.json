@@ -1,0 +1,13 @@
+{
+  "name": "hairmang-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal Railway backend service for SalonOS (real logic runs in Supabase Edge Functions).",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
