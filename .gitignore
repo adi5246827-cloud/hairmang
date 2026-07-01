@@ -1,0 +1,21 @@
+# Claude Code local memory (not part of the app)
+memory/
+
+# Environment / secrets
+.env
+.env.*
+*.local
+hairapp-*.txt
+
+# Supabase local state
+supabase/.branches
+supabase/.temp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/

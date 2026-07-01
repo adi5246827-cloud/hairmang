@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SalonOS — דירוג הביקור</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../styles.css" />
+  <style>
+    .stars { display: flex; flex-direction: row-reverse; justify-content: center; gap: 6px; margin: 8px 0 4px; }
+    .stars button {
+      font-size: 2.6rem; line-height: 1; background: none; border: none; cursor: pointer;
+      color: #3a3f4b; transition: transform 0.1s, color 0.12s; padding: 2px;
+    }
+    .stars button:hover { transform: scale(1.12); }
+    .stars button.on { color: #fbbf24; }
+    .rate-label { text-align: center; color: var(--muted); min-height: 22px; font-weight: 600; }
+    textarea {
+      width: 100%; font-family: inherit; font-size: 1rem; color: var(--text);
+      background: var(--field); border: 1px solid var(--field-border);
+      border-radius: 12px; padding: 13px 14px; resize: vertical;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(124,92,255,0.18); }
+    .gbtn { display: inline-flex; align-items: center; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true"><span class="orb orb-1"></span><span class="orb orb-2"></span></div>
+
+  <main class="card" role="main">
+    <header class="card__head">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle>
+          <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
+          <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
+          <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
+        </svg>
+      </div>
+      <h1 id="title">איך היה הביקור?</h1>
+      <p id="subtitle">נשמח לשמוע מה דעתך 💜</p>
+    </header>
+
+    <form id="reviewForm" class="form">
+      <div class="field">
+        <div class="stars" id="stars">
+          <button type="button" data-v="5" aria-label="5">★</button>
+          <button type="button" data-v="4" aria-label="4">★</button>
+          <button type="button" data-v="3" aria-label="3">★</button>
+          <button type="button" data-v="2" aria-label="2">★</button>
+          <button type="button" data-v="1" aria-label="1">★</button>
+        </div>
+        <div class="rate-label" id="rateLabel"></div>
+      </div>
+      <div class="field">
+        <label for="comment">מה תרצה לספר לנו? <span class="opt">(לא חובה)</span></label>
+        <textarea id="comment" rows="3" placeholder="הטיפול, השירות, האווירה…"></textarea>
+      </div>
+      <button type="submit" class="btn" id="submitBtn">
+        <span class="btn__label">שליחת דירוג</span>
+        <span class="btn__spinner" aria-hidden="true"></span>
+      </button>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </form>
+
+    <section id="thanks" class="success" hidden>
+      <div class="success__check" aria-hidden="true">
+        <svg viewBox="0 0 52 52" width="64" height="64">
+          <circle class="success__circle" cx="26" cy="26" r="24" fill="none" />
+          <path class="success__tick" fill="none" d="M14 27 l8 8 l16 -18" />
+        </svg>
+      </div>
+      <h2 id="thanksTitle">תודה רבה! 🙏</h2>
+      <p class="success__sub" id="thanksSub">הדירוג שלך התקבל.</p>
+      <a id="googleBtn" class="btn gbtn" href="#" target="_blank" rel="noopener" hidden>
+        ⭐ לשתף את החוויה גם בגוגל
+      </a>
+    </section>
+  </main>
+
+  <script src="review.js"></script>
+</body>
+</html>

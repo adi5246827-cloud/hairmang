@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SalonOS — קביעת תור</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <main class="card" role="main">
+    <header class="card__head">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="6" cy="6" r="3"></circle>
+          <circle cx="6" cy="18" r="3"></circle>
+          <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
+          <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
+          <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
+        </svg>
+      </div>
+      <h1>קביעת תור</h1>
+      <p>מלאו את הפרטים ובחרו שעה פנויה 💇</p>
+    </header>
+
+    <!-- ===== Booking form ===== -->
+    <form id="bookingForm" class="form" novalidate>
+      <div class="field">
+        <label for="full_name">שם מלא</label>
+        <input id="full_name" name="full_name" type="text" placeholder="לדוגמה: דנה כהן" autocomplete="name" required />
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="phone">טלפון</label>
+          <input id="phone" name="phone" type="tel" placeholder="050-0000000" autocomplete="tel" required />
+        </div>
+        <div class="field">
+          <label for="email">אימייל <span class="opt">(לא חובה)</span></label>
+          <input id="email" name="email" type="email" placeholder="name@email.com" autocomplete="email" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="service_id">סוג טיפול</label>
+          <div class="select-wrap">
+            <select id="service_id" name="service_id" required>
+              <option value="" disabled selected>טוען…</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="staff_id">ספר/ית</label>
+          <div class="select-wrap">
+            <select id="staff_id" name="staff_id">
+              <option value="">כל ספר/ית פנוי/ה</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="date">תאריך</label>
+        <input id="date" name="date" type="date" required />
+      </div>
+
+      <div class="field" id="slotsField">
+        <label>שעות פנויות</label>
+        <div id="slots" class="slots">
+          <p class="slots__hint">בחרו טיפול ותאריך כדי לראות שעות פנויות</p>
+        </div>
+        <input type="hidden" id="desired_time" name="desired_time" required />
+      </div>
+
+      <button type="submit" class="btn" id="submitBtn">
+        <span class="btn__label">קביעת תור</span>
+        <span class="btn__spinner" aria-hidden="true"></span>
+      </button>
+
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </form>
+
+    <!-- ===== Success / thank-you screen ===== -->
+    <section id="success" class="success" hidden>
+      <div class="success__check" aria-hidden="true">
+        <svg viewBox="0 0 52 52" width="64" height="64">
+          <circle class="success__circle" cx="26" cy="26" r="24" fill="none" />
+          <path class="success__tick" fill="none" d="M14 27 l8 8 l16 -18" />
+        </svg>
+      </div>
+      <h2>התור נקבע! 🎉</h2>
+      <p class="success__sub">קיבלנו את הבקשה ונחזור אליכם לאישור סופי.</p>
+      <dl class="summary" id="summary"></dl>
+      <button type="button" class="btn btn--ghost" id="againBtn">קביעת תור נוסף</button>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
