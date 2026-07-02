@@ -919,6 +919,26 @@ const VIEW_BLOCKS = {
       ] } },
   ],
 
+  hours: [
+    { table: "business_hours", title: "שעות פעילות המספרה", order: ["day_of_week", true],
+      select: "id,day_of_week,open_time,close_time,is_closed,branch_id",
+      cols: [
+        { l: "יום", r: (r) => heMap("dow", r.day_of_week) },
+        { l: "פתיחה", r: (r) => r.is_closed ? '<span class="muted-cell">—</span>' : String(r.open_time).slice(0, 5) },
+        { l: "סגירה", r: (r) => r.is_closed ? '<span class="muted-cell">—</span>' : String(r.close_time).slice(0, 5) },
+        { l: "סטטוס", r: (r) => r.is_closed ? '<span class="pill pill--off">סגור</span>' : '<span class="pill pill--ok">פתוח</span>' },
+      ],
+      edit: { title: "שעות יום", fields: [
+        { name: "day_of_week", label: "יום בשבוע", type: "select", numeric: true, options: [
+          { value: 0, label: "ראשון" }, { value: 1, label: "שני" }, { value: 2, label: "שלישי" },
+          { value: 3, label: "רביעי" }, { value: 4, label: "חמישי" }, { value: 5, label: "שישי" }, { value: 6, label: "שבת" },
+        ] },
+        { name: "open_time", label: "שעת פתיחה", type: "time" },
+        { name: "close_time", label: "שעת סגירה", type: "time" },
+        { name: "is_closed", label: "סגור ביום זה", type: "checkbox" },
+      ] } },
+  ],
+
   staff: [
     { table: "staff", title: "אנשי צוות", order: ["full_name", true],
       select: "id,full_name,email,phone,commission_rate,hourly_cost,is_active,role_id,roles(name)",

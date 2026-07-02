@@ -14,12 +14,37 @@ import { applyPricing, localDowMinutes } from "../_shared/pricing.ts";
 
 const TZ = "Asia/Jerusalem";
 const SLOT_STEP_MIN = 30;
-// opening hours per weekday (0=Sun … 6=Sat), local time. null = closed
-const HOURS: Record<number, [number, number] | null> = {
+// Fallback opening hours per weekday (0=Sun … 6=Sat), local time. null = closed.
+// Used only when the business_hours table has no row for that day/branch.
+const DEFAULT_HOURS: Record<number, [number, number] | null> = {
   0: [9, 20], 1: [9, 20], 2: [9, 20], 3: [9, 20], 4: [9, 20],
   5: [9, 14], // Friday
   6: null,    // Saturday closed
 };
+
+// "HH:MM[:SS]" -> minutes since midnight
+function hmToMin(t: string): number {
+  const [h, m] = String(t).split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+// Resolve a day's [openMin, closeMin] from business_hours, else DEFAULT_HOURS.
+// Returns null when the salon is closed that day.
+async function dayHoursMin(
+  supabase: any, branchId: string | undefined, dow: number,
+): Promise<[number, number] | null> {
+  const { data } = await supabase
+    .from("business_hours")
+    .select("open_time, close_time, is_closed")
+    .eq("branch_id", branchId)
+    .eq("day_of_week", dow)
+    .maybeSingle();
+  if (data) {
+    return data.is_closed ? null : [hmToMin(data.open_time), hmToMin(data.close_time)];
+  }
+  const def = DEFAULT_HOURS[dow];
+  return def ? [def[0] * 60, def[1] * 60] : null;
+}
 
 // offset (ms) of a timezone at a given instant
 function tzOffsetMs(date: Date, tz: string): number {
@@ -206,11 +231,12 @@ async function getSlots(supabase: any, url: URL): Promise<Response> {
 
   const [y, m, d] = date.split("-").map(Number);
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  const hours = HOURS[dow];
-  if (!hours) return json({ slots: [] }); // closed that day
 
   const { data: branch } = await supabase
     .from("branches").select("id").order("created_at").limit(1).maybeSingle();
+
+  const hours = await dayHoursMin(supabase, branch?.id, dow);
+  if (!hours) return json({ slots: [] }); // closed that day
 
   // active-staff capacity (used when no specific stylist is requested)
   const { count: staffCount } = await supabase
@@ -233,11 +259,11 @@ async function getSlots(supabase: any, url: URL): Promise<Response> {
     staff: a.staff_id,
   }));
 
-  const [open, close] = hours;
+  const [openMin, closeMin] = hours;
   const now = Date.now();
   const slots: string[] = [];
 
-  for (let mins = open * 60; mins + dur <= close * 60; mins += SLOT_STEP_MIN) {
+  for (let mins = openMin; mins + dur <= closeMin; mins += SLOT_STEP_MIN) {
     const start = localToUTC(y, m, d, Math.floor(mins / 60), mins % 60);
     const sMs = start.getTime();
     const eMs = sMs + dur * 60000;
