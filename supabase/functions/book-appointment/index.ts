@@ -156,40 +156,16 @@ Deno.serve(async (req) => {
     );
     if (!free) return json({ error: "השעה נתפסה, אנא בחרו שעה אחרת" }, 409);
 
-    // find or create the client
-    let { data: client } = await supabase
-      .from("clients").select("id").eq("phone", phone).maybeSingle();
-    if (!client) {
-      const { data: created, error } = await supabase
-        .from("clients")
-        .insert({ full_name, phone, email, branch_id: branch?.id ?? null })
-        .select("id").single();
-      if (error) throw error;
-      client = created;
-    } else if (email) {
-      await supabase.from("clients")
-        .update({ email, full_name }).eq("id", client.id);
+    // ----- hard block: salon must be open for the whole appointment window -----
+    const { dow, minutes } = localDowMinutes(start, TZ);
+    const eMin = minutes + service.duration_minutes;
+    const salonHours = await dayHoursMin(supabase, branch?.id, dow);
+    if (!salonHours || minutes < salonHours[0] || eMin > salonHours[1]) {
+      return json({ error: "המספרה סגורה בשעה זו, בחרו שעה אחרת" }, 409);
     }
 
-    // ----- dynamic pricing: adjust base price by day/time/tier rules -----
-    const { data: acct } = await supabase
-      .from("loyalty_accounts")
-      .select("loyalty_tiers(name)")
-      .eq("client_id", client.id).maybeSingle();
-    const tier = (acct?.loyalty_tiers as { name?: string } | null)?.name ?? "silver";
-
-    const { data: rules } = await supabase
-      .from("pricing_rules")
-      .select("name, service_id, day_of_week, start_time, end_time, adjustment_type, adjustment_value, applies_to_tier, is_active")
-      .eq("is_active", true)
-      .or(`service_id.eq.${service_id},service_id.is.null`);
-
-    const { dow, minutes } = localDowMinutes(start, TZ);
-    const priced = applyPricing(service.base_price, rules ?? [], { dow, minutes, tier, serviceId: service_id });
-    const finalPrice = priced.price;
-
-    // ----- assign a specific stylist: respect breaks, never double-book -----
-    const eMin = minutes + service.duration_minutes;
+    // ----- assign a stylist: respect working hours + breaks, never double-book -----
+    // (done before creating the client, so a rejected booking leaves no orphan row)
     const dayBreaks = await loadBreaks(supabase, dow);
     const onBreak = (sid: string) =>
       dayBreaks.some((b: any) =>
@@ -228,6 +204,37 @@ Deno.serve(async (req) => {
       )) ?? null;
       if (!assignedStaff) return json({ error: "אין ספר פנוי בשעה זו, בחרו שעה אחרת" }, 409);
     }
+
+    // find or create the client
+    let { data: client } = await supabase
+      .from("clients").select("id").eq("phone", phone).maybeSingle();
+    if (!client) {
+      const { data: created, error } = await supabase
+        .from("clients")
+        .insert({ full_name, phone, email, branch_id: branch?.id ?? null })
+        .select("id").single();
+      if (error) throw error;
+      client = created;
+    } else if (email) {
+      await supabase.from("clients")
+        .update({ email, full_name }).eq("id", client.id);
+    }
+
+    // ----- dynamic pricing: adjust base price by day/time/tier rules -----
+    const { data: acct } = await supabase
+      .from("loyalty_accounts")
+      .select("loyalty_tiers(name)")
+      .eq("client_id", client.id).maybeSingle();
+    const tier = (acct?.loyalty_tiers as { name?: string } | null)?.name ?? "silver";
+
+    const { data: rules } = await supabase
+      .from("pricing_rules")
+      .select("name, service_id, day_of_week, start_time, end_time, adjustment_type, adjustment_value, applies_to_tier, is_active")
+      .eq("is_active", true)
+      .or(`service_id.eq.${service_id},service_id.is.null`);
+
+    const priced = applyPricing(service.base_price, rules ?? [], { dow, minutes, tier, serviceId: service_id });
+    const finalPrice = priced.price;
 
     const { data: appt, error: apptErr } = await supabase
       .from("appointments")
