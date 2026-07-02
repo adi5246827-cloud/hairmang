@@ -54,6 +54,17 @@ async function loadBreaks(supabase: any, dow: number) {
   return (data ?? []).filter((b: any) => b.day_of_week == null || b.day_of_week === dow);
 }
 
+// Per-stylist working hours for a weekday -> { [staffId]: {start_time,end_time,is_off} }.
+async function loadStaffHours(supabase: any, dow: number) {
+  const { data } = await supabase
+    .from("staff_hours")
+    .select("staff_id, start_time, end_time, is_off, day_of_week")
+    .eq("day_of_week", dow);
+  const map: Record<string, any> = {};
+  (data ?? []).forEach((r: any) => (map[r.staff_id] = r));
+  return map;
+}
+
 // offset (ms) of a timezone at a given instant
 function tzOffsetMs(date: Date, tz: string): number {
   const dtf = new Intl.DateTimeFormat("en-US", {
@@ -183,14 +194,24 @@ Deno.serve(async (req) => {
     const onBreak = (sid: string) =>
       dayBreaks.some((b: any) =>
         b.staff_id === sid && minutes < hmToMin(b.end_time) && hmToMin(b.start_time) < eMin);
+    const staffHours = await loadStaffHours(supabase, dow);
+    const worksNow = (sid: string) => {
+      const wh = staffHours[sid];
+      if (!wh) return true;                       // no per-stylist hours set
+      if (wh.is_off) return false;
+      return minutes >= hmToMin(wh.start_time) && eMin <= hmToMin(wh.end_time);
+    };
 
     let assignedStaff: string | null = staff_id;
     if (assignedStaff) {
+      if (!worksNow(assignedStaff)) {
+        return json({ error: "הספר אינו עובד בשעה זו, בחרו שעה אחרת" }, 409);
+      }
       if (onBreak(assignedStaff)) {
         return json({ error: "השעה נמצאת בהפסקת הספר, בחרו שעה אחרת" }, 409);
       }
     } else {
-      // client chose "any" — pick the first stylist free at this time
+      // client chose "any" — pick the first stylist working & free at this time
       const sMs = start.getTime(), eMs = end.getTime(), pad = 12 * 3600000;
       const { data: staffRows } = await supabase
         .from("staff").select("id").eq("is_active", true).order("created_at");
@@ -201,9 +222,9 @@ Deno.serve(async (req) => {
         .lte("starts_at", new Date(sMs + pad).toISOString())
         .not("status", "in", "(cancelled,no_show)");
       assignedStaff = ((staffRows ?? []).map((s: any) => s.id).find((sid: string) =>
+        worksNow(sid) && !onBreak(sid) &&
         !(near ?? []).some((a: any) =>
-          a.staff_id === sid && overlaps(sMs, eMs, +new Date(a.starts_at), +new Date(a.ends_at))) &&
-        !onBreak(sid)
+          a.staff_id === sid && overlaps(sMs, eMs, +new Date(a.starts_at), +new Date(a.ends_at)))
       )) ?? null;
       if (!assignedStaff) return json({ error: "אין ספר פנוי בשעה זו, בחרו שעה אחרת" }, 409);
     }
@@ -286,6 +307,15 @@ async function getSlots(supabase: any, url: URL): Promise<Response> {
     dayBreaks.filter((b: any) => b.staff_id === sid)
       .map((b: any) => [hmToMin(b.start_time), hmToMin(b.end_time)] as [number, number]);
 
+  // per-stylist working window (defaults to the salon hours when not set)
+  const [openMin, closeMin] = hours;
+  const staffHours = await loadStaffHours(supabase, dow);
+  const windowFor = (sid: string): [number, number] | null => {
+    const wh = staffHours[sid];
+    if (!wh) return [openMin, closeMin];
+    return wh.is_off ? null : [hmToMin(wh.start_time), hmToMin(wh.end_time)];
+  };
+
   // existing appointments that day
   const dayStart = localToUTC(y, m, d, 0, 0).toISOString();
   const dayEnd = localToUTC(y, m, d, 23, 59).toISOString();
@@ -304,12 +334,13 @@ async function getSlots(supabase: any, url: URL): Promise<Response> {
   // a stylist is free for a slot when they have no overlapping appointment
   // (compared in ms) and no overlapping break (compared in minutes-of-day)
   const staffFree = (sid: string, sMs: number, eMs: number, sMin: number, eMin: number) => {
+    const win = windowFor(sid);
+    if (!win || sMin < win[0] || eMin > win[1]) return false;   // outside this stylist's hours
     if (busy.some((b) => b.staff === sid && overlaps(sMs, eMs, b.s, b.e))) return false;
     if (breaksFor(sid).some(([bs, be]) => sMin < be && bs < eMin)) return false;
     return true;
   };
 
-  const [openMin, closeMin] = hours;
   const now = Date.now();
   const slots: string[] = [];
 

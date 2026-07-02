@@ -354,13 +354,14 @@ async function loadCalendar() {
   $("calRange").textContent = calDay.toLocaleDateString("he-IL",
     { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 
-  const [staffRes, apptRes, bhRes, brRes] = await Promise.all([
+  const [staffRes, apptRes, bhRes, brRes, shRes] = await Promise.all([
     sb.from("staff").select("id, full_name").eq("is_active", true).order("full_name"),
     sb.from("appointments").select(SELECT_APPT)
       .gte("starts_at", from.toISOString()).lte("starts_at", to.toISOString())
       .not("status", "in", "(cancelled,no_show)").order("starts_at", { ascending: true }),
     sb.from("business_hours").select("open_time, close_time, is_closed").eq("day_of_week", dow).maybeSingle(),
     sb.from("staff_breaks").select("staff_id, day_of_week, start_time, end_time, note"),
+    sb.from("staff_hours").select("staff_id, start_time, end_time, is_off").eq("day_of_week", dow),
   ]);
   if (apptRes.error) { wrap.innerHTML = `<div class="empty">שגיאה: ${esc(apptRes.error.message)}</div>`; return; }
 
@@ -368,6 +369,8 @@ async function loadCalendar() {
   const appts = apptRes.data || [];
   const bh = bhRes.data;
   const breaks = (brRes.data || []).filter((b) => b.day_of_week == null || b.day_of_week === dow);
+  const shMap = {};
+  (shRes.data || []).forEach((r) => (shMap[r.staff_id] = r));
 
   // columns = active stylists, plus an "unassigned" column if any such appt
   const cols = staff.map((s) => ({ id: s.id, name: s.full_name }));
@@ -405,7 +408,7 @@ async function loadCalendar() {
       const line = el("div", "hour-line"); line.style.height = HOUR_PX + "px"; col.appendChild(line);
     }
 
-    // closed shading (whole day, or before opening / after closing)
+    // shade outside this stylist's working window (falls back to salon hours)
     const addClosed = (fromMin, toMin) => {
       if (toMin <= fromMin) return;
       const b = el("div", "cal-closed");
@@ -413,10 +416,18 @@ async function loadCalendar() {
       b.style.height = toPx(toMin - fromMin) + "px";
       col.appendChild(b);
     };
-    if (closedAllDay) addClosed(CAL_START * 60, CAL_END * 60);
-    else if (openMin != null) {
-      addClosed(CAL_START * 60, Math.max(CAL_START * 60, openMin));
-      addClosed(Math.min(CAL_END * 60, closeMin), CAL_END * 60);
+    let winOpen = openMin, winClose = closeMin, off = closedAllDay;
+    if (c.id) {
+      const wh = shMap[c.id];
+      if (wh) {
+        if (wh.is_off) off = true;
+        else { winOpen = hhmmToMin(wh.start_time); winClose = hhmmToMin(wh.end_time); }
+      }
+    }
+    if (off || winOpen == null) addClosed(CAL_START * 60, CAL_END * 60);
+    else {
+      addClosed(CAL_START * 60, Math.max(CAL_START * 60, winOpen));
+      addClosed(Math.min(CAL_END * 60, winClose), CAL_END * 60);
     }
 
     // breaks for this stylist
@@ -1002,6 +1013,25 @@ const VIEW_BLOCKS = {
         { name: "open_time", label: "שעת פתיחה", type: "time" },
         { name: "close_time", label: "שעת סגירה", type: "time" },
         { name: "is_closed", label: "סגור ביום זה", type: "checkbox" },
+      ] } },
+    { table: "staff_hours", title: "שעות עבודה לפי ספר", order: ["staff_id", true],
+      select: "id,staff_id,day_of_week,start_time,end_time,is_off,staff(full_name)",
+      cols: [
+        { l: "ספר", r: (r) => esc(r.staff?.full_name) },
+        { l: "יום", r: (r) => heMap("dow", r.day_of_week) },
+        { l: "פתיחה", r: (r) => r.is_off ? '<span class="muted-cell">—</span>' : String(r.start_time).slice(0, 5) },
+        { l: "סגירה", r: (r) => r.is_off ? '<span class="muted-cell">—</span>' : String(r.end_time).slice(0, 5) },
+        { l: "סטטוס", r: (r) => r.is_off ? '<span class="pill pill--off">חופש</span>' : '<span class="pill pill--ok">עובד</span>' },
+      ],
+      edit: { title: "שעות עבודה", fields: [
+        { name: "staff_id", label: "ספר", type: "fk", from: { table: "staff", labelField: "full_name" }, required: true },
+        { name: "day_of_week", label: "יום בשבוע", type: "select", numeric: true, options: [
+          { value: 0, label: "ראשון" }, { value: 1, label: "שני" }, { value: 2, label: "שלישי" },
+          { value: 3, label: "רביעי" }, { value: 4, label: "חמישי" }, { value: 5, label: "שישי" }, { value: 6, label: "שבת" },
+        ] },
+        { name: "start_time", label: "שעת התחלה", type: "time" },
+        { name: "end_time", label: "שעת סיום", type: "time" },
+        { name: "is_off", label: "יום חופש (לא עובד)", type: "checkbox" },
       ] } },
     { table: "staff_breaks", title: "הפסקות צוות", order: ["staff_id", true],
       select: "id,staff_id,day_of_week,start_time,end_time,note,staff(full_name)",
