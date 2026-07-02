@@ -231,7 +231,21 @@ label { font-size: 0.85rem; font-weight: 600; color: #d7dae1; }
 .cal-event.s-cancelled, .cal-event.s-no_show { background: rgba(154,160,171,0.35); text-decoration: line-through; }
 .cal-event.s-completed { background: linear-gradient(135deg, rgba(52,211,153,0.85), rgba(56,189,248,0.7)); }
 .cal-event.s-pending { background: linear-gradient(135deg, rgba(251,191,36,0.8), rgba(124,92,255,0.7)); }
+.cal-event { z-index: 2; }
 .cal-event .ce-name { font-weight: 700; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.cal-event .ce-time { font-size: 0.68rem; opacity: 0.92; }
+.cal-event .ce-svc { font-size: 0.66rem; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-closed {
+  position: absolute; left: 0; right: 0; z-index: 0; pointer-events: none;
+  background: repeating-linear-gradient(45deg, rgba(0,0,0,0.26), rgba(0,0,0,0.26) 8px, rgba(0,0,0,0.12) 8px, rgba(0,0,0,0.12) 16px);
+}
+.cal-break {
+  position: absolute; left: 2px; right: 2px; z-index: 1; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  font-size: 0.68rem; color: var(--muted); overflow: hidden;
+  background: repeating-linear-gradient(45deg, rgba(154,160,171,0.22), rgba(154,160,171,0.22) 7px, rgba(154,160,171,0.10) 7px, rgba(154,160,171,0.10) 14px);
+  border: 1px dashed rgba(255,255,255,0.22);
+}
 
 /* ===== drawer ===== */
 .drawer { position: fixed; inset: 0; z-index: 50; }

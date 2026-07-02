@@ -46,6 +46,14 @@ async function dayHoursMin(
   return def ? [def[0] * 60, def[1] * 60] : null;
 }
 
+// Recurring staff breaks for a weekday (day_of_week null = every day).
+async function loadBreaks(supabase: any, dow: number) {
+  const { data } = await supabase
+    .from("staff_breaks")
+    .select("staff_id, start_time, end_time, day_of_week");
+  return (data ?? []).filter((b: any) => b.day_of_week == null || b.day_of_week === dow);
+}
+
 // offset (ms) of a timezone at a given instant
 function tzOffsetMs(date: Date, tz: string): number {
   const dtf = new Intl.DateTimeFormat("en-US", {
@@ -169,12 +177,43 @@ Deno.serve(async (req) => {
     const priced = applyPricing(service.base_price, rules ?? [], { dow, minutes, tier, serviceId: service_id });
     const finalPrice = priced.price;
 
+    // ----- assign a specific stylist: respect breaks, never double-book -----
+    const eMin = minutes + service.duration_minutes;
+    const dayBreaks = await loadBreaks(supabase, dow);
+    const onBreak = (sid: string) =>
+      dayBreaks.some((b: any) =>
+        b.staff_id === sid && minutes < hmToMin(b.end_time) && hmToMin(b.start_time) < eMin);
+
+    let assignedStaff: string | null = staff_id;
+    if (assignedStaff) {
+      if (onBreak(assignedStaff)) {
+        return json({ error: "השעה נמצאת בהפסקת הספר, בחרו שעה אחרת" }, 409);
+      }
+    } else {
+      // client chose "any" — pick the first stylist free at this time
+      const sMs = start.getTime(), eMs = end.getTime(), pad = 12 * 3600000;
+      const { data: staffRows } = await supabase
+        .from("staff").select("id").eq("is_active", true).order("created_at");
+      const { data: near } = await supabase
+        .from("appointments").select("staff_id, starts_at, ends_at")
+        .eq("branch_id", branch?.id)
+        .gte("starts_at", new Date(sMs - pad).toISOString())
+        .lte("starts_at", new Date(sMs + pad).toISOString())
+        .not("status", "in", "(cancelled,no_show)");
+      assignedStaff = ((staffRows ?? []).map((s: any) => s.id).find((sid: string) =>
+        !(near ?? []).some((a: any) =>
+          a.staff_id === sid && overlaps(sMs, eMs, +new Date(a.starts_at), +new Date(a.ends_at))) &&
+        !onBreak(sid)
+      )) ?? null;
+      if (!assignedStaff) return json({ error: "אין ספר פנוי בשעה זו, בחרו שעה אחרת" }, 409);
+    }
+
     const { data: appt, error: apptErr } = await supabase
       .from("appointments")
       .insert({
         branch_id: branch?.id ?? null,
         client_id: client.id,
-        staff_id,
+        staff_id: assignedStaff,
         status: "pending",
         starts_at: start.toISOString(),
         ends_at: end.toISOString(),
@@ -187,7 +226,7 @@ Deno.serve(async (req) => {
     await supabase.from("appointment_services").insert({
       appointment_id: appt.id,
       service_id: service.id,
-      staff_id,
+      staff_id: assignedStaff,
       price: finalPrice,
       duration_minutes: service.duration_minutes,
     });
@@ -238,11 +277,14 @@ async function getSlots(supabase: any, url: URL): Promise<Response> {
   const hours = await dayHoursMin(supabase, branch?.id, dow);
   if (!hours) return json({ slots: [] }); // closed that day
 
-  // active-staff capacity (used when no specific stylist is requested)
-  const { count: staffCount } = await supabase
-    .from("staff").select("id", { count: "exact", head: true })
-    .eq("is_active", true);
-  const capacity = Math.max(staffCount ?? 1, 1);
+  // active stylists + their breaks for this weekday
+  const { data: staffRows } = await supabase
+    .from("staff").select("id").eq("is_active", true);
+  const staffList: string[] = (staffRows ?? []).map((s: any) => s.id);
+  const dayBreaks = await loadBreaks(supabase, dow);
+  const breaksFor = (sid: string): [number, number][] =>
+    dayBreaks.filter((b: any) => b.staff_id === sid)
+      .map((b: any) => [hmToMin(b.start_time), hmToMin(b.end_time)] as [number, number]);
 
   // existing appointments that day
   const dayStart = localToUTC(y, m, d, 0, 0).toISOString();
@@ -259,6 +301,14 @@ async function getSlots(supabase: any, url: URL): Promise<Response> {
     staff: a.staff_id,
   }));
 
+  // a stylist is free for a slot when they have no overlapping appointment
+  // (compared in ms) and no overlapping break (compared in minutes-of-day)
+  const staffFree = (sid: string, sMs: number, eMs: number, sMin: number, eMin: number) => {
+    if (busy.some((b) => b.staff === sid && overlaps(sMs, eMs, b.s, b.e))) return false;
+    if (breaksFor(sid).some(([bs, be]) => sMin < be && bs < eMin)) return false;
+    return true;
+  };
+
   const [openMin, closeMin] = hours;
   const now = Date.now();
   const slots: string[] = [];
@@ -268,16 +318,11 @@ async function getSlots(supabase: any, url: URL): Promise<Response> {
     const sMs = start.getTime();
     const eMs = sMs + dur * 60000;
     if (sMs < now) continue; // skip past slots today
+    const sMin = mins, eMin = mins + dur;
 
-    let available: boolean;
-    if (staff_id) {
-      available = !busy.some(
-        (b) => b.staff === staff_id && overlaps(sMs, eMs, b.s, b.e),
-      );
-    } else {
-      const concurrent = busy.filter((b) => overlaps(sMs, eMs, b.s, b.e)).length;
-      available = concurrent < capacity;
-    }
+    const available = staff_id
+      ? staffFree(staff_id, sMs, eMs, sMin, eMin)
+      : staffList.some((sid) => staffFree(sid, sMs, eMs, sMin, eMin));
     if (available) slots.push(start.toISOString());
   }
 

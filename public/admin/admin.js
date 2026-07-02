@@ -301,78 +301,16 @@ async function notifyClient(clientId, text, intent) {
 const CAL_START = 8;   // first hour shown
 const CAL_END = 21;    // last hour shown (exclusive)
 const HOUR_PX = 56;
-let weekAnchor = startOfWeek(new Date());
+let calDay = startOfDay(new Date());
 
-function startOfWeek(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  x.setDate(x.getDate() - x.getDay()); // Sunday = 0 (week starts Sunday in IL)
-  return x;
-}
-$("calPrev").addEventListener("click", () => { weekAnchor.setDate(weekAnchor.getDate() - 7); loadCalendar(); });
-$("calNext").addEventListener("click", () => { weekAnchor.setDate(weekAnchor.getDate() + 7); loadCalendar(); });
-$("calToday").addEventListener("click", () => { weekAnchor = startOfWeek(new Date()); loadCalendar(); });
+function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+function dayKey(d) { return new Date(d).toLocaleDateString("en-CA", { timeZone: TZ }); }
+const hhmmToMin = (t) => { const [h, m] = String(t).split(":").map(Number); return h * 60 + (m || 0); };
 
-async function loadCalendar() {
-  const wrap = $("calendar");
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekAnchor); d.setDate(d.getDate() + i); return d;
-  });
-  const from = new Date(days[0]); from.setHours(0, 0, 0, 0);
-  const to = new Date(days[6]); to.setHours(23, 59, 59, 999);
+$("calPrev").addEventListener("click", () => { calDay.setDate(calDay.getDate() - 1); loadCalendar(); });
+$("calNext").addEventListener("click", () => { calDay.setDate(calDay.getDate() + 1); loadCalendar(); });
+$("calToday").addEventListener("click", () => { calDay = startOfDay(new Date()); loadCalendar(); });
 
-  $("calRange").textContent = `${fmtDay(from.toISOString())} – ${fmtDay(to.toISOString())}`;
-
-  const { data, error } = await sb.from("appointments")
-    .select(SELECT_APPT)
-    .gte("starts_at", from.toISOString())
-    .lte("starts_at", to.toISOString())
-    .not("status", "in", "(cancelled,no_show)")
-    .order("starts_at", { ascending: true });
-
-  if (error) { wrap.innerHTML = `<div class="empty">שגיאה: ${esc(error.message)}</div>`; return; }
-
-  const hours = CAL_END - CAL_START;
-  const grid = el("div", "cal-grid");
-  const todayKey = dayKey(new Date());
-
-  grid.appendChild(el("div", "cal-corner"));
-  const dows = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
-  days.forEach((d, i) => {
-    const h = el("div", "cal-head" + (dayKey(d) === todayKey ? " is-today" : ""));
-    h.innerHTML = `<div class="dow">${dows[i]}</div><div class="dnum">${d.getDate()}/${d.getMonth() + 1}</div>`;
-    grid.appendChild(h);
-  });
-
-  // hour gutter
-  const gutter = el("div", "");
-  for (let hh = CAL_START; hh < CAL_END; hh++) {
-    const c = el("div", "cal-hour", `${String(hh).padStart(2, "0")}:00`);
-    c.style.height = HOUR_PX + "px";
-    gutter.appendChild(c);
-  }
-  grid.appendChild(gutter);
-
-  // day columns
-  days.forEach((d) => {
-    const col = el("div", "cal-col");
-    col.style.height = hours * HOUR_PX + "px";
-    for (let hh = CAL_START; hh < CAL_END; hh++) {
-      const line = el("div", "hour-line"); line.style.height = HOUR_PX + "px"; col.appendChild(line);
-    }
-    const key = dayKey(d);
-    (data || []).filter((a) => dayKey(new Date(a.starts_at)) === key)
-      .forEach((a) => col.appendChild(renderEvent(a)));
-    grid.appendChild(col);
-  });
-
-  wrap.innerHTML = "";
-  wrap.appendChild(grid);
-}
-
-function dayKey(d) {
-  return new Date(d).toLocaleDateString("en-CA", { timeZone: TZ }); // YYYY-MM-DD in TZ
-}
 function minutesFromStart(iso) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false,
@@ -381,15 +319,143 @@ function minutesFromStart(iso) {
   const m = +parts.find((p) => p.type === "minute").value;
   return (h - CAL_START) * 60 + m;
 }
-function renderEvent(a) {
+
+// lay overlapping appointments side by side within one stylist column
+function laneLayout(evs) {
+  const items = evs.map((a) => ({ a, s: +new Date(a.starts_at), e: +new Date(a.ends_at) }))
+    .sort((x, y) => x.s - y.s || x.e - y.e);
+  const out = new Map();
+  let cluster = [], clusterEnd = -1;
+  const flush = () => {
+    const lanes = [];
+    cluster.forEach((it) => {
+      let lane = lanes.findIndex((end) => end <= it.s);
+      if (lane === -1) { lane = lanes.length; lanes.push(it.e); } else { lanes[lane] = it.e; }
+      out.set(it.a, { lane });
+    });
+    cluster.forEach((it) => (out.get(it.a).total = lanes.length));
+    cluster = []; clusterEnd = -1;
+  };
+  items.forEach((it) => {
+    if (cluster.length && it.s >= clusterEnd) flush();
+    cluster.push(it); clusterEnd = Math.max(clusterEnd, it.e);
+  });
+  flush();
+  return out;
+}
+
+async function loadCalendar() {
+  const wrap = $("calendar");
+  wrap.innerHTML = '<div class="loading-row">טוען…</div>';
+
+  const dow = calDay.getDay();
+  const from = new Date(calDay); from.setHours(0, 0, 0, 0);
+  const to = new Date(calDay); to.setHours(23, 59, 59, 999);
+  $("calRange").textContent = calDay.toLocaleDateString("he-IL",
+    { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
+
+  const [staffRes, apptRes, bhRes, brRes] = await Promise.all([
+    sb.from("staff").select("id, full_name").eq("is_active", true).order("full_name"),
+    sb.from("appointments").select(SELECT_APPT)
+      .gte("starts_at", from.toISOString()).lte("starts_at", to.toISOString())
+      .not("status", "in", "(cancelled,no_show)").order("starts_at", { ascending: true }),
+    sb.from("business_hours").select("open_time, close_time, is_closed").eq("day_of_week", dow).maybeSingle(),
+    sb.from("staff_breaks").select("staff_id, day_of_week, start_time, end_time, note"),
+  ]);
+  if (apptRes.error) { wrap.innerHTML = `<div class="empty">שגיאה: ${esc(apptRes.error.message)}</div>`; return; }
+
+  const staff = staffRes.data || [];
+  const appts = apptRes.data || [];
+  const bh = bhRes.data;
+  const breaks = (brRes.data || []).filter((b) => b.day_of_week == null || b.day_of_week === dow);
+
+  // columns = active stylists, plus an "unassigned" column if any such appt
+  const cols = staff.map((s) => ({ id: s.id, name: s.full_name }));
+  if (appts.some((a) => !a.staff_id)) cols.push({ id: null, name: "ללא ספר" });
+  if (!cols.length) { wrap.innerHTML = '<div class="empty">לא הוגדרו אנשי צוות פעילים</div>'; return; }
+
+  const hoursCount = CAL_END - CAL_START;
+  const grid = el("div", "cal-grid");
+  grid.style.gridTemplateColumns = `54px repeat(${cols.length}, minmax(150px, 1fr))`;
+
+  grid.appendChild(el("div", "cal-corner"));
+  cols.forEach((c) => {
+    const h = el("div", "cal-head");
+    h.innerHTML = `<div class="dow">${esc(c.name)}</div>`;
+    grid.appendChild(h);
+  });
+
+  const gutter = el("div", "");
+  for (let hh = CAL_START; hh < CAL_END; hh++) {
+    const c = el("div", "cal-hour", `${String(hh).padStart(2, "0")}:00`);
+    c.style.height = HOUR_PX + "px";
+    gutter.appendChild(c);
+  }
+  grid.appendChild(gutter);
+
+  const closedAllDay = bh ? bh.is_closed : false;
+  const openMin = bh && !bh.is_closed ? hhmmToMin(bh.open_time) : null;
+  const closeMin = bh && !bh.is_closed ? hhmmToMin(bh.close_time) : null;
+  const toPx = (min) => (min / 60) * HOUR_PX;
+
+  cols.forEach((c) => {
+    const col = el("div", "cal-col");
+    col.style.height = hoursCount * HOUR_PX + "px";
+    for (let hh = CAL_START; hh < CAL_END; hh++) {
+      const line = el("div", "hour-line"); line.style.height = HOUR_PX + "px"; col.appendChild(line);
+    }
+
+    // closed shading (whole day, or before opening / after closing)
+    const addClosed = (fromMin, toMin) => {
+      if (toMin <= fromMin) return;
+      const b = el("div", "cal-closed");
+      b.style.top = toPx(fromMin - CAL_START * 60) + "px";
+      b.style.height = toPx(toMin - fromMin) + "px";
+      col.appendChild(b);
+    };
+    if (closedAllDay) addClosed(CAL_START * 60, CAL_END * 60);
+    else if (openMin != null) {
+      addClosed(CAL_START * 60, Math.max(CAL_START * 60, openMin));
+      addClosed(Math.min(CAL_END * 60, closeMin), CAL_END * 60);
+    }
+
+    // breaks for this stylist
+    breaks.filter((b) => b.staff_id === c.id).forEach((b) => {
+      const s = hhmmToMin(b.start_time), e = hhmmToMin(b.end_time);
+      const bl = el("div", "cal-break");
+      bl.style.top = toPx(s - CAL_START * 60) + "px";
+      bl.style.height = toPx(e - s) + "px";
+      bl.innerHTML = `<span>${esc(b.note || "הפסקה")} · ${String(b.start_time).slice(0, 5)}–${String(b.end_time).slice(0, 5)}</span>`;
+      col.appendChild(bl);
+    });
+
+    // appointments for this stylist, with side-by-side lanes on overlap
+    const mine = appts.filter((a) => (a.staff_id || null) === c.id);
+    const layout = laneLayout(mine);
+    mine.forEach((a) => col.appendChild(renderEvent(a, layout.get(a) || { lane: 0, total: 1 })));
+
+    grid.appendChild(col);
+  });
+
+  wrap.innerHTML = "";
+  wrap.appendChild(grid);
+}
+
+function renderEvent(a, pos) {
   const top = Math.max(0, (minutesFromStart(a.starts_at) / 60) * HOUR_PX);
   const durMin = Math.max(20, (new Date(a.ends_at) - new Date(a.starts_at)) / 60000);
+  const total = (pos && pos.total) || 1, lane = (pos && pos.lane) || 0;
+  const svc = (a.appointment_services || []).map((r) => r.services?.name).filter(Boolean)[0] || "";
   const ev = el("div", `cal-event s-${a.status}`);
   ev.style.top = top + "px";
   ev.style.height = (durMin / 60) * HOUR_PX - 3 + "px";
+  ev.style.left = `calc(${(lane / total) * 100}% + 2px)`;
+  ev.style.width = `calc(${100 / total}% - 4px)`;
+  ev.style.right = "auto";
   ev.innerHTML = `<div class="ce-name">${esc(a.clients?.full_name || "לקוח/ה")}</div>
-    <div>${fmtTime(a.starts_at)}</div>`;
-  ev.title = `${a.clients?.full_name || ""} · ${fmtTime(a.starts_at)} · ${STATUS_HE[a.status]}`;
+    <div class="ce-time">${fmtTime(a.starts_at)}</div>
+    ${svc ? `<div class="ce-svc">${esc(svc)}</div>` : ""}`;
+  ev.title = `${a.clients?.full_name || ""} · ${fmtTime(a.starts_at)} · ${svc} · ${STATUS_HE[a.status]}`;
   return ev;
 }
 
@@ -936,6 +1002,25 @@ const VIEW_BLOCKS = {
         { name: "open_time", label: "שעת פתיחה", type: "time" },
         { name: "close_time", label: "שעת סגירה", type: "time" },
         { name: "is_closed", label: "סגור ביום זה", type: "checkbox" },
+      ] } },
+    { table: "staff_breaks", title: "הפסקות צוות", order: ["staff_id", true],
+      select: "id,staff_id,day_of_week,start_time,end_time,note,staff(full_name)",
+      cols: [
+        { l: "ספר", r: (r) => esc(r.staff?.full_name) },
+        { l: "יום", r: (r) => r.day_of_week == null ? '<span class="muted-cell">כל יום</span>' : heMap("dow", r.day_of_week) },
+        { l: "משעה", r: (r) => String(r.start_time).slice(0, 5) },
+        { l: "עד שעה", r: (r) => String(r.end_time).slice(0, 5) },
+        { l: "הערה", r: (r) => dash(r.note) },
+      ],
+      edit: { title: "הפסקה", fields: [
+        { name: "staff_id", label: "ספר", type: "fk", from: { table: "staff", labelField: "full_name" }, required: true },
+        { name: "day_of_week", label: "יום (ריק = כל יום)", type: "select", numeric: true, options: [
+          { value: 0, label: "ראשון" }, { value: 1, label: "שני" }, { value: 2, label: "שלישי" },
+          { value: 3, label: "רביעי" }, { value: 4, label: "חמישי" }, { value: 5, label: "שישי" }, { value: 6, label: "שבת" },
+        ] },
+        { name: "start_time", label: "משעה", type: "time" },
+        { name: "end_time", label: "עד שעה", type: "time" },
+        { name: "note", label: "הערה", type: "text" },
       ] } },
   ],
 
