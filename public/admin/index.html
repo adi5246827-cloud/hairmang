@@ -167,6 +167,7 @@
         <div class="view__head">
           <h2>יומן — לפי ספר</h2>
           <div class="filters">
+            <button id="calNew" class="btn btn--sm">+ תור חדש</button>
             <button id="calPrev" class="btn btn--ghost btn--sm">‹ יום קודם</button>
             <button id="calToday" class="btn btn--ghost btn--sm">היום</button>
             <button id="calNext" class="btn btn--ghost btn--sm">יום הבא ›</button>
@@ -281,6 +282,39 @@
       <h3 id="modalTitle">עריכה</h3>
       <form id="modalForm" class="form" novalidate></form>
       <div id="modalToast" class="toast"></div>
+    </div>
+  </div>
+
+  <!-- ===== New-appointment modal ===== -->
+  <div id="apptModal" class="modal" hidden>
+    <div class="modal__backdrop" data-aclose></div>
+    <div class="modal__panel">
+      <button class="drawer__close" data-aclose aria-label="סגירה">✕</button>
+      <h3>תור חדש</h3>
+      <form id="apptForm" class="form" novalidate>
+        <div class="field">
+          <label for="apptClient">לקוח</label>
+          <div class="select-wrap"><select id="apptClient"><option value="">— לקוח חדש —</option></select></div>
+        </div>
+        <div class="row" id="apptNewRow">
+          <div class="field"><label for="apptName">שם מלא</label><input id="apptName" type="text" placeholder="שם הלקוח" /></div>
+          <div class="field"><label for="apptPhone">טלפון</label><input id="apptPhone" type="tel" placeholder="050-0000000" /></div>
+        </div>
+        <div class="field">
+          <label for="apptService">שירות</label>
+          <div class="select-wrap"><select id="apptService" required></select></div>
+        </div>
+        <div class="field">
+          <label for="apptStaff">ספר/ית</label>
+          <div class="select-wrap"><select id="apptStaff"><option value="">— ללא שיוך —</option></select></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="apptDate">תאריך</label><input id="apptDate" type="date" /></div>
+          <div class="field"><label for="apptTime">שעה</label><input id="apptTime" type="time" /></div>
+        </div>
+        <button type="submit" class="btn"><span class="btn__label">שמירת תור</span><span class="btn__spinner" aria-hidden="true"></span></button>
+        <div id="apptToast" class="toast"></div>
+      </form>
     </div>
   </div>
 

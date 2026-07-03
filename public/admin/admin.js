@@ -404,6 +404,16 @@ async function loadCalendar() {
   cols.forEach((c) => {
     const col = el("div", "cal-col");
     col.style.height = hoursCount * HOUR_PX + "px";
+    // click an empty area to create a new appointment for this stylist at that time
+    col.style.cursor = "copy";
+    col.addEventListener("click", (ev) => {
+      if (ev.target.closest(".cal-event")) return; // don't hijack existing appointments
+      const y = ev.clientY - col.getBoundingClientRect().top;
+      let mins = CAL_START * 60 + Math.round(((y / HOUR_PX) * 60) / 30) * 30;
+      mins = Math.min(Math.max(mins, CAL_START * 60), CAL_END * 60 - 30);
+      const t = `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+      openApptModal({ date: dayKey(calDay), time: t, staffId: c.id });
+    });
     for (let hh = CAL_START; hh < CAL_END; hh++) {
       const line = el("div", "hour-line"); line.style.height = HOUR_PX + "px"; col.appendChild(line);
     }
@@ -469,6 +479,102 @@ function renderEvent(a, pos) {
   ev.title = `${a.clients?.full_name || ""} · ${fmtTime(a.starts_at)} · ${svc} · ${STATUS_HE[a.status]}`;
   return ev;
 }
+
+// =====================================================================
+// New appointment (from the calendar)
+// =====================================================================
+const apptModal = $("apptModal");
+let apptCache = null; // { services, staff, clients, branchId }
+
+apptModal.querySelectorAll("[data-aclose]").forEach((n) =>
+  n.addEventListener("click", () => (apptModal.hidden = true)));
+$("calNew").addEventListener("click", () => openApptModal({}));
+$("apptClient").addEventListener("change", () => {
+  $("apptNewRow").style.display = $("apptClient").value ? "none" : "";
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") apptModal.hidden = true; });
+
+async function loadApptCache() {
+  if (apptCache) return apptCache;
+  const [svc, stf, cl, br] = await Promise.all([
+    sb.from("services").select("id, name, duration_minutes, base_price").eq("is_active", true).order("name"),
+    sb.from("staff").select("id, full_name").eq("is_active", true).order("full_name"),
+    sb.from("clients").select("id, full_name, phone").order("full_name").limit(500),
+    sb.from("branches").select("id").order("created_at").limit(1).maybeSingle(),
+  ]);
+  apptCache = {
+    services: svc.data || [], staff: stf.data || [],
+    clients: cl.data || [], branchId: br.data?.id || null,
+  };
+  $("apptService").innerHTML = apptCache.services.map((s) =>
+    `<option value="${s.id}" data-dur="${s.duration_minutes}" data-price="${s.base_price}">${esc(s.name)} · ${s.duration_minutes} דק׳ · ₪${s.base_price}</option>`).join("");
+  $("apptStaff").innerHTML = `<option value="">— ללא שיוך —</option>` +
+    apptCache.staff.map((s) => `<option value="${s.id}">${esc(s.full_name)}</option>`).join("");
+  $("apptClient").innerHTML = `<option value="">— לקוח חדש —</option>` +
+    apptCache.clients.map((c) => `<option value="${c.id}">${esc(c.full_name)}${c.phone ? " · " + esc(c.phone) : ""}</option>`).join("");
+  return apptCache;
+}
+
+async function openApptModal({ date, time, staffId } = {}) {
+  await loadApptCache();
+  $("apptToast").className = "toast";
+  $("apptClient").value = "";
+  $("apptName").value = ""; $("apptPhone").value = "";
+  $("apptNewRow").style.display = "";
+  $("apptDate").value = date || dayKey(new Date());
+  $("apptTime").value = time || "10:00";
+  $("apptStaff").value = staffId || "";
+  apptModal.hidden = false;
+}
+
+$("apptForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const toast = $("apptToast");
+  const svcOpt = $("apptService").selectedOptions[0];
+  const serviceId = $("apptService").value;
+  const date = $("apptDate").value, time = $("apptTime").value;
+  if (!serviceId || !date || !time) { toast.textContent = "נא למלא שירות, תאריך ושעה"; toast.className = "toast show err"; return; }
+  const dur = +svcOpt.dataset.dur || 30;
+  const price = +svcOpt.dataset.price || 0;
+  const staffId = $("apptStaff").value || null;
+
+  const btn = e.currentTarget.querySelector("button[type=submit]");
+  btn.disabled = true; btn.classList.add("loading");
+  try {
+    let cid = $("apptClient").value || null;
+    if (!cid) {
+      const name = $("apptName").value.trim(), phone = $("apptPhone").value.trim();
+      if (!name || !phone) throw new Error("נא להזין שם וטלפון ללקוח חדש");
+      const { data: exist } = await sb.from("clients").select("id").eq("phone", phone).maybeSingle();
+      if (exist) cid = exist.id;
+      else {
+        const { data: created, error } = await sb.from("clients")
+          .insert({ full_name: name, phone, branch_id: apptCache.branchId }).select("id").single();
+        if (error) throw error;
+        cid = created.id;
+      }
+    }
+    const starts = new Date(`${date}T${time}`);
+    const ends = new Date(starts.getTime() + dur * 60000);
+    const { data: appt, error: aerr } = await sb.from("appointments").insert({
+      branch_id: apptCache.branchId, client_id: cid, staff_id: staffId,
+      status: "confirmed", starts_at: starts.toISOString(), ends_at: ends.toISOString(),
+      source: "walk_in", total_price: price, confirmed_at: new Date().toISOString(),
+    }).select("id").single();
+    if (aerr) throw aerr;
+    await sb.from("appointment_services").insert({
+      appointment_id: appt.id, service_id: serviceId, staff_id: staffId, price, duration_minutes: dur,
+    });
+    apptModal.hidden = true;
+    apptCache = null;            // refresh client list next open (a new client may exist)
+    if (calDay && dayKey(calDay) === date) loadCalendar();
+    else { calDay = new Date(`${date}T00:00:00`); loadCalendar(); }
+  } catch (err) {
+    toast.textContent = "שמירה נכשלה: " + err.message; toast.className = "toast show err";
+  } finally {
+    btn.disabled = false; btn.classList.remove("loading");
+  }
+});
 
 // =====================================================================
 // Clients
