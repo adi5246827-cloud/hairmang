@@ -484,7 +484,8 @@ function renderEvent(a, pos) {
 // New appointment (from the calendar)
 // =====================================================================
 const apptModal = $("apptModal");
-let apptCache = null; // { services, staff, clients, branchId }
+let apptCache = null;       // { services, staff, clients, branchId }
+let apptConflictOK = false; // true once the user overrode a conflict warning
 
 apptModal.querySelectorAll("[data-aclose]").forEach((n) =>
   n.addEventListener("click", () => (apptModal.hidden = true)));
@@ -492,7 +493,16 @@ $("calNew").addEventListener("click", () => openApptModal({}));
 $("apptClient").addEventListener("change", () => {
   $("apptNewRow").style.display = $("apptClient").value ? "none" : "";
 });
+// changing the slot / stylist / service cancels an earlier conflict override
+["apptStaff", "apptService", "apptDate", "apptTime"].forEach((id) =>
+  $(id).addEventListener("change", resetApptConflict));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") apptModal.hidden = true; });
+
+function resetApptConflict() {
+  apptConflictOK = false;
+  const lbl = apptModal.querySelector(".btn__label");
+  if (lbl) lbl.textContent = "שמירת תור";
+}
 
 async function loadApptCache() {
   if (apptCache) return apptCache;
@@ -524,6 +534,7 @@ async function openApptModal({ date, time, staffId } = {}) {
   $("apptDate").value = date || dayKey(new Date());
   $("apptTime").value = time || "10:00";
   $("apptStaff").value = staffId || "";
+  resetApptConflict();
   apptModal.hidden = false;
 }
 
@@ -537,6 +548,31 @@ $("apptForm").addEventListener("submit", async (e) => {
   const dur = +svcOpt.dataset.dur || 30;
   const price = +svcOpt.dataset.price || 0;
   const staffId = $("apptStaff").value || null;
+  const starts = new Date(`${date}T${time}`);
+  const ends = new Date(starts.getTime() + dur * 60000);
+  const sMs = starts.getTime(), eMs = ends.getTime();
+
+  // ----- soft conflict warning: click again to save anyway -----
+  if (staffId && !apptConflictOK) {
+    const pad = 12 * 3600000;
+    const { data: clash } = await sb.from("appointments")
+      .select("starts_at, ends_at, clients(full_name)")
+      .eq("staff_id", staffId)
+      .gte("starts_at", new Date(sMs - pad).toISOString())
+      .lte("starts_at", new Date(sMs + pad).toISOString())
+      .not("status", "in", "(cancelled,no_show)");
+    const hit = (clash || []).find((a) =>
+      sMs < new Date(a.ends_at).getTime() && new Date(a.starts_at).getTime() < eMs);
+    if (hit) {
+      const ht = new Date(hit.starts_at).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
+      toast.textContent = `⚠️ התנגשות: לספר כבר יש תור ב-${ht}${hit.clients?.full_name ? " · " + hit.clients.full_name : ""}. לחצו שוב לשמירה בכל זאת.`;
+      toast.className = "toast show err";
+      apptConflictOK = true;
+      const lbl = e.currentTarget.querySelector(".btn__label");
+      if (lbl) lbl.textContent = "שמור בכל זאת";
+      return;
+    }
+  }
 
   const btn = e.currentTarget.querySelector("button[type=submit]");
   btn.disabled = true; btn.classList.add("loading");
@@ -554,8 +590,6 @@ $("apptForm").addEventListener("submit", async (e) => {
         cid = created.id;
       }
     }
-    const starts = new Date(`${date}T${time}`);
-    const ends = new Date(starts.getTime() + dur * 60000);
     const { data: appt, error: aerr } = await sb.from("appointments").insert({
       branch_id: apptCache.branchId, client_id: cid, staff_id: staffId,
       status: "confirmed", starts_at: starts.toISOString(), ends_at: ends.toISOString(),
