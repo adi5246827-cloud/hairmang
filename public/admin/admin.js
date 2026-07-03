@@ -144,16 +144,26 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") gRes.hidde
 
 async function runGlobalSearch(term) {
   const like = `%${term}%`;
-  const [cl, sv, st] = await Promise.all([
+  const [cl, ap, sv, st] = await Promise.all([
     sb.from("clients").select("id, full_name, phone")
       .or(`full_name.ilike.${like},phone.ilike.${like}`).order("full_name").limit(6),
+    sb.from("appointments")
+      .select("id, starts_at, status, clients!inner(full_name), appointment_services(services(name))")
+      .ilike("clients.full_name", like)
+      .order("starts_at", { ascending: false }).limit(5),
     sb.from("services").select("id, name, base_price").ilike("name", like).limit(4),
     sb.from("staff").select("id, full_name").ilike("full_name", like).eq("is_active", true).limit(4),
   ]);
-  const clients = cl.data || [], services = sv.data || [], staff = st.data || [];
+  const clients = cl.data || [], appts = ap.data || [], services = sv.data || [], staff = st.data || [];
   const parts = [];
   if (clients.length) parts.push(`<div class="gs-group">לקוחות</div>` + clients.map((c) =>
     `<div class="gs-item" data-gs="client:${c.id}"><div class="gi-name">${esc(c.full_name)}</div><div class="gi-sub">${esc(c.phone || "")}</div></div>`).join(""));
+  if (appts.length) parts.push(`<div class="gs-group">תורים</div>` + appts.map((a) => {
+    const d = new Date(a.starts_at);
+    const dstr = d.toLocaleDateString("he-IL", { day: "numeric", month: "numeric", timeZone: TZ });
+    const svc = (a.appointment_services || []).map((r) => r.services?.name).filter(Boolean)[0] || "";
+    return `<div class="gs-item" data-gs="appt:${dayKey(d)}"><div class="gi-name">${esc(a.clients?.full_name || "לקוח/ה")}</div><div class="gi-sub">${dstr} · ${fmtTime(a.starts_at)}${svc ? " · " + esc(svc) : ""} · ${STATUS_HE[a.status]}</div></div>`;
+  }).join(""));
   if (services.length) parts.push(`<div class="gs-group">שירותים</div>` + services.map((s) =>
     `<div class="gs-item" data-gs="service:${s.id}"><div class="gi-name">${esc(s.name)}</div><div class="gi-sub">₪${s.base_price}</div></div>`).join(""));
   if (staff.length) parts.push(`<div class="gs-group">צוות</div>` + staff.map((s) =>
@@ -168,6 +178,7 @@ gRes.addEventListener("click", (e) => {
   const [type, id] = item.dataset.gs.split(":");
   gRes.hidden = true; gSearch.value = "";
   if (type === "client") { switchView("clients"); openClient(id); }
+  else if (type === "appt") { calDay = new Date(`${id}T00:00:00`); switchView("calendar"); }
   else if (type === "service") switchView("services");
   else if (type === "staff") switchView("staff");
 });
