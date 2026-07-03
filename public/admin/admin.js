@@ -126,6 +126,53 @@ function switchView(name) {
 }
 
 // =====================================================================
+// Global search (clients / services / staff)
+// =====================================================================
+const gSearch = $("gSearch"), gRes = $("gSearchResults");
+let gTimer;
+gSearch.addEventListener("input", () => {
+  clearTimeout(gTimer);
+  const term = gSearch.value.trim();
+  if (term.length < 2) { gRes.hidden = true; return; }
+  gTimer = setTimeout(() => runGlobalSearch(term), 220);
+});
+gSearch.addEventListener("focus", () => {
+  if (gSearch.value.trim().length >= 2 && gRes.innerHTML) gRes.hidden = false;
+});
+document.addEventListener("click", (e) => { if (!e.target.closest(".gsearch")) gRes.hidden = true; });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") gRes.hidden = true; });
+
+async function runGlobalSearch(term) {
+  const like = `%${term}%`;
+  const [cl, sv, st] = await Promise.all([
+    sb.from("clients").select("id, full_name, phone")
+      .or(`full_name.ilike.${like},phone.ilike.${like}`).order("full_name").limit(6),
+    sb.from("services").select("id, name, base_price").ilike("name", like).limit(4),
+    sb.from("staff").select("id, full_name").ilike("full_name", like).eq("is_active", true).limit(4),
+  ]);
+  const clients = cl.data || [], services = sv.data || [], staff = st.data || [];
+  const parts = [];
+  if (clients.length) parts.push(`<div class="gs-group">לקוחות</div>` + clients.map((c) =>
+    `<div class="gs-item" data-gs="client:${c.id}"><div class="gi-name">${esc(c.full_name)}</div><div class="gi-sub">${esc(c.phone || "")}</div></div>`).join(""));
+  if (services.length) parts.push(`<div class="gs-group">שירותים</div>` + services.map((s) =>
+    `<div class="gs-item" data-gs="service:${s.id}"><div class="gi-name">${esc(s.name)}</div><div class="gi-sub">₪${s.base_price}</div></div>`).join(""));
+  if (staff.length) parts.push(`<div class="gs-group">צוות</div>` + staff.map((s) =>
+    `<div class="gs-item" data-gs="staff:${s.id}"><div class="gi-name">${esc(s.full_name)}</div><div class="gi-sub">ספר/ית</div></div>`).join(""));
+  gRes.innerHTML = parts.join("") || `<div class="gs-empty">לא נמצאו תוצאות</div>`;
+  gRes.hidden = false;
+}
+
+gRes.addEventListener("click", (e) => {
+  const item = e.target.closest("[data-gs]");
+  if (!item) return;
+  const [type, id] = item.dataset.gs.split(":");
+  gRes.hidden = true; gSearch.value = "";
+  if (type === "client") { switchView("clients"); openClient(id); }
+  else if (type === "service") switchView("services");
+  else if (type === "staff") switchView("staff");
+});
+
+// =====================================================================
 // Appointments
 // =====================================================================
 const SELECT_APPT =

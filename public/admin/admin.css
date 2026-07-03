@@ -145,6 +145,22 @@ label { font-size: 0.85rem; font-weight: 600; color: #3A3430; }
 .nav__logout { margin-top: auto; color: var(--danger); }
 .nav__logout:hover { background: rgba(192, 57, 43, 0.1); color: var(--danger); }
 
+/* ---- global search ---- */
+.gsearch { position: relative; margin: 2px 0 14px; }
+.gsearch__input { width: 100%; }
+.gsearch__results {
+  position: absolute; top: calc(100% + 6px); right: 0; width: 300px; max-width: 84vw;
+  max-height: 62vh; overflow-y: auto; z-index: 80; padding: 6px;
+  background: var(--panel); border: 1px solid var(--card-border);
+  border-radius: 12px; box-shadow: var(--shadow);
+}
+.gs-group { font-size: 0.72rem; font-weight: 700; color: var(--muted); letter-spacing: 0.03em; padding: 8px 10px 3px; }
+.gs-item { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 9px; cursor: pointer; }
+.gs-item:hover { background: var(--field); }
+.gs-item .gi-name { font-weight: 600; font-size: 0.9rem; }
+.gs-item .gi-sub { color: var(--muted); font-size: 0.78rem; }
+.gs-empty { color: var(--muted); font-size: 0.85rem; padding: 14px 10px; text-align: center; }
+
 .content { padding: 28px 32px; overflow-x: hidden; }
 .view__head {
   display: flex; align-items: center; justify-content: space-between;
