@@ -6,23 +6,23 @@
   <title>SalonOS — דירוג הביקור</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../styles.css" />
   <style>
     .stars { display: flex; flex-direction: row-reverse; justify-content: center; gap: 6px; margin: 8px 0 4px; }
     .stars button {
       font-size: 2.6rem; line-height: 1; background: none; border: none; cursor: pointer;
-      color: #3a3f4b; transition: transform 0.1s, color 0.12s; padding: 2px;
+      color: #DADAD9; transition: transform 0.1s, color 0.12s; padding: 2px;
     }
     .stars button:hover { transform: scale(1.12); }
-    .stars button.on { color: #fbbf24; }
+    .stars button.on { color: #D4AF37; }
     .rate-label { text-align: center; color: var(--muted); min-height: 22px; font-weight: 600; }
     textarea {
       width: 100%; font-family: inherit; font-size: 1rem; color: var(--text);
       background: var(--field); border: 1px solid var(--field-border);
       border-radius: 12px; padding: 13px 14px; resize: vertical;
     }
-    textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(124,92,255,0.18); }
+    textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-ring); }
     .gbtn { display: inline-flex; align-items: center; gap: 8px; }
   </style>
 </head>
